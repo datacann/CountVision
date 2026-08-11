@@ -1,4 +1,4 @@
-package com.countvision
+package com.datacanstudio.countvision
 
 import android.app.Application
 import com.facebook.react.PackageList
