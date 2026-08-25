@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Animated,
   BackHandler,
   LayoutAnimation,
@@ -22,6 +23,8 @@ import AdBanner from "./AdBanner";
 
 const COLORS = ["yellow", "red", "black", "other"];
 const GAP_THRESHOLD = 45;
+const FEEDBACK_URL =
+  "https://countvision-backend-production.up.railway.app/feedback";
 
 type Tile = any;
 type TileGroup = {
@@ -71,7 +74,7 @@ function isOkeyTile(tile: Tile) {
 }
 
 function isFakeOkeyTile(tile: Tile) {
-  return tile?.is_fake_okey || tile?.number === "unknown";
+  return tile?.is_fake_okey === true;
 }
 
 function makeTileId(tile: Tile, index: number) {
@@ -460,6 +463,8 @@ export default function EditResultScreen({ navigation, route }: any) {
   }
 
   const result = route?.params?.result ?? {};
+  const analysisId: string | null = result?.analysis_id ?? null;
+  const feedbackEnabled = result?.feedback_enabled === true && Boolean(analysisId);
   const incomingTiles = result?.all_tiles ?? result?.tiles ?? [];
 
   const initialOkeyNumber = result?.okeyNumber ?? null;
@@ -480,6 +485,9 @@ export default function EditResultScreen({ navigation, route }: any) {
   const [okeyColor, setOkeyColor] = useState<string | null>(
     initialOkeyColor ?? null,
   );
+  const [feedbackState, setFeedbackState] = useState<
+    "idle" | "saving" | "correct" | "incorrect" | "error"
+  >("idle");
   const groupRefs = useRef<Record<string, View | null>>({});
 
   const openOkeyPicker = useCallback(() => {
@@ -515,6 +523,24 @@ export default function EditResultScreen({ navigation, route }: any) {
   const goToHome = useCallback(() => {
     navigation.replace("Home");
   }, [navigation]);
+
+  const submitFeedback = useCallback(
+    async (verdict: "correct" | "incorrect") => {
+      if (!analysisId || feedbackState === "saving") return;
+      setFeedbackState("saving");
+      try {
+        const body = new FormData();
+        body.append("analysis_id", analysisId);
+        body.append("verdict", verdict);
+        const response = await fetch(FEEDBACK_URL, { method: "POST", body });
+        if (!response.ok) throw new Error("Feedback could not be saved");
+        setFeedbackState(verdict);
+      } catch {
+        setFeedbackState("error");
+      }
+    },
+    [analysisId, feedbackState],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -1142,6 +1168,62 @@ export default function EditResultScreen({ navigation, route }: any) {
           bırak.
         </Text>
 
+        {feedbackEnabled && (
+          <View style={styles.feedbackCard}>
+            <View style={styles.feedbackHeaderRow}>
+              <View style={styles.feedbackHeaderText}>
+                <Text allowFontScaling={false} style={styles.feedbackTitle}>
+                  Analiz sonucu doğru mu?
+                </Text>
+                <Text allowFontScaling={false} style={styles.feedbackSubtitle}>
+                  Fotoğraf ve analiz aynı ID ile test verisine kaydedilir.
+                </Text>
+              </View>
+              <Text allowFontScaling={false} style={styles.feedbackId}>
+                ID {analysisId?.slice(0, 8)}
+              </Text>
+            </View>
+
+            {feedbackState === "correct" || feedbackState === "incorrect" ? (
+              <Text allowFontScaling={false} style={styles.feedbackSavedText}>
+                ✓ {feedbackState === "correct" ? "Doğru" : "Hatalı"} olarak kaydedildi
+              </Text>
+            ) : (
+              <View style={styles.feedbackButtonRow}>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  style={[styles.feedbackButton, styles.incorrectFeedbackButton]}
+                  disabled={feedbackState === "saving"}
+                  onPress={() => submitFeedback("incorrect")}
+                >
+                  <Text allowFontScaling={false} style={styles.incorrectFeedbackText}>
+                    Hatalı
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  style={[styles.feedbackButton, styles.correctFeedbackButton]}
+                  disabled={feedbackState === "saving"}
+                  onPress={() => submitFeedback("correct")}
+                >
+                  {feedbackState === "saving" ? (
+                    <ActivityIndicator color="#07130D" size="small" />
+                  ) : (
+                    <Text allowFontScaling={false} style={styles.correctFeedbackText}>
+                      Doğru
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+            {feedbackState === "error" && (
+              <Text allowFontScaling={false} style={styles.feedbackErrorText}>
+                Kaydedilemedi. İnterneti kontrol edip tekrar dene.
+              </Text>
+            )}
+          </View>
+        )}
+
         <View style={styles.buttonRow}>
           <TouchableOpacity
             style={styles.cancelButton}
@@ -1560,6 +1642,69 @@ const styles = StyleSheet.create({
     color: "#9F8D80",
     fontSize: 11,
     fontWeight: "700",
+    textAlign: "center",
+  },
+  feedbackCard: {
+    marginTop: 13,
+    padding: 13,
+    borderRadius: 17,
+    backgroundColor: "#241B17",
+    borderWidth: 1,
+    borderColor: "rgba(245,215,161,0.18)",
+  },
+  feedbackHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  feedbackHeaderText: { flex: 1 },
+  feedbackTitle: { color: "#FFFFFF", fontSize: 14, fontWeight: "900" },
+  feedbackSubtitle: {
+    marginTop: 3,
+    color: "#A99688",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  feedbackId: {
+    color: "#F5D7A1",
+    fontSize: 10,
+    fontWeight: "900",
+    backgroundColor: "rgba(245,215,161,0.10)",
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  feedbackButtonRow: { flexDirection: "row", gap: 9, marginTop: 11 },
+  feedbackButton: {
+    flex: 1,
+    height: 42,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  incorrectFeedbackButton: {
+    backgroundColor: "rgba(255,84,84,0.12)",
+    borderColor: "rgba(255,118,118,0.45)",
+  },
+  correctFeedbackButton: {
+    backgroundColor: "#00FF88",
+    borderColor: "#00FF88",
+  },
+  incorrectFeedbackText: { color: "#FF8D8D", fontSize: 13, fontWeight: "900" },
+  correctFeedbackText: { color: "#07130D", fontSize: 13, fontWeight: "900" },
+  feedbackSavedText: {
+    marginTop: 11,
+    color: "#00FF88",
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  feedbackErrorText: {
+    marginTop: 8,
+    color: "#FF8D8D",
+    fontSize: 10,
+    fontWeight: "800",
     textAlign: "center",
   },
   modalBackdrop: {

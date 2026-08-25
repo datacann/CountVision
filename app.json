@@ -1,10 +1,13 @@
 {
   "name": "CountVision",
   "displayName": "101 Hesaplama",
+  "slug": "countvision",
+
   "react-native-google-mobile-ads": {
     "android_app_id": "ca-app-pub-3940256099942544~3347511713",
     "ios_app_id": "ca-app-pub-4858173270247933~2699741520"
   },
+
   "extra": {
     "eas": {
       "projectId": "71c3b86b-2113-4a2c-8864-36a7ebb19263"
