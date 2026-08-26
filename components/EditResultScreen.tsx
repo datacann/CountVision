@@ -36,7 +36,8 @@ type TileGroup = {
 function normalizeColor(color?: string) {
   const c = color?.toLowerCase();
   if (c === "green") return "other";
-  return c;
+  if (COLORS.includes(c ?? "")) return c;
+  return undefined;
 }
 
 function getColorValue(color?: string) {
@@ -50,7 +51,7 @@ function getColorValue(color?: string) {
     case "other":
       return "#1FA45A";
     default:
-      return "#1FA45A";
+      return "#7D858C";
   }
 }
 
@@ -65,7 +66,7 @@ function getColorLabel(color?: string) {
     case "other":
       return "Yeşil";
     default:
-      return "Yeşil";
+      return "Belirsiz";
   }
 }
 
