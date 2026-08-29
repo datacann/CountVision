@@ -1,4 +1,4 @@
-com.datacanstudio.countvision
+package com.datacanstudio.countvision
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

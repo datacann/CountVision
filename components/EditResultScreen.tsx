@@ -40,7 +40,11 @@ function normalizeColor(color?: string) {
   return undefined;
 }
 
-function getColorValue(color?: string) {
+function getColorValue(color?: string, colorVariant?: string) {
+  if (normalizeColor(color) === "other" && colorVariant === "blue") {
+    return "#246BCE";
+  }
+
   switch (normalizeColor(color)) {
     case "red":
       return "#C73333";
@@ -55,7 +59,11 @@ function getColorValue(color?: string) {
   }
 }
 
-function getColorLabel(color?: string) {
+function getColorLabel(color?: string, colorVariant?: string) {
+  if (normalizeColor(color) === "other" && colorVariant === "blue") {
+    return "Mavi";
+  }
+
   switch (normalizeColor(color)) {
     case "yellow":
       return "Sarı";
@@ -303,6 +311,7 @@ type DraggableTileProps = {
   children: React.ReactNode;
   onTap: () => void;
   onDragSelect: () => void;
+  onDragMove: (tileId: string, moveX: number, moveY: number) => void;
   onDrop: (tileId: string, moveX: number, moveY: number) => void;
   onDragStateChange: (dragging: boolean) => void;
 };
@@ -312,6 +321,7 @@ function DraggableTile({
   children,
   onTap,
   onDragSelect,
+  onDragMove,
   onDrop,
   onDragStateChange,
 }: DraggableTileProps) {
@@ -390,6 +400,7 @@ function DraggableTile({
         onPanResponderMove: (_, gestureState) => {
           if (!dragActiveRef.current) return;
           pan.setValue({ x: gestureState.dx, y: gestureState.dy });
+          onDragMove(tileId, gestureState.moveX, gestureState.moveY);
         },
         onPanResponderRelease: (_, gestureState) => {
           finishDrag(true, gestureState.moveX, gestureState.moveY);
@@ -399,7 +410,7 @@ function DraggableTile({
         },
         onPanResponderTerminationRequest: () => !dragActiveRef.current,
       }),
-    [activateDrag, clearHoldTimer, finishDrag, pan],
+    [activateDrag, clearHoldTimer, finishDrag, onDragMove, pan, tileId],
   );
 
   const animatedStyle = {
@@ -478,6 +489,11 @@ export default function EditResultScreen({ navigation, route }: any) {
     groups[0]?.tiles[0]?.id ?? null,
   );
   const [isDraggingTile, setIsDraggingTile] = useState(false);
+  const [dragPreview, setDragPreview] = useState<{
+    tileId: string;
+    groupId: string;
+    insertionIndex: number;
+  } | null>(null);
   const [editorVisible, setEditorVisible] = useState(false);
   const [okeyPickerVisible, setOkeyPickerVisible] = useState(false);
   const [okeyNumber, setOkeyNumber] = useState<string | null>(
@@ -490,6 +506,10 @@ export default function EditResultScreen({ navigation, route }: any) {
     "idle" | "saving" | "correct" | "incorrect" | "error"
   >("idle");
   const groupRefs = useRef<Record<string, View | null>>({});
+  const groupMeasurementsRef = useRef<
+    Array<{ groupId: string; x: number; y: number; width: number; height: number }>
+  >([]);
+  const dragPreviewRef = useRef<typeof dragPreview>(null);
 
   const openOkeyPicker = useCallback(() => {
     // Popup'ta varsayılan olarak görünen değerler state'e de yazılsın.
@@ -670,8 +690,106 @@ export default function EditResultScreen({ navigation, route }: any) {
     [],
   );
 
+  const measureDropTargets = useCallback(() => {
+    Object.entries(groupRefs.current).forEach(([groupId, ref]) => {
+      ref?.measureInWindow((x, y, measuredWidth, measuredHeight) => {
+        const nextMeasurement = {
+          groupId,
+          x,
+          y,
+          width: measuredWidth,
+          height: measuredHeight,
+        };
+        groupMeasurementsRef.current = [
+          ...groupMeasurementsRef.current.filter((item) => item.groupId !== groupId),
+          nextMeasurement,
+        ];
+      });
+    });
+  }, []);
+
+  const selectDragPreview = useCallback(
+    (tileId: string, moveX: number, moveY: number) => {
+      const rectangles = groupMeasurementsRef.current;
+      if (!rectangles.length) return;
+
+      const DROP_MARGIN = 24;
+      const containing = rectangles.find(
+        (rect) =>
+          moveX >= rect.x - DROP_MARGIN &&
+          moveX <= rect.x + rect.width + DROP_MARGIN &&
+          moveY >= rect.y - DROP_MARGIN &&
+          moveY <= rect.y + rect.height + DROP_MARGIN,
+      );
+      if (!containing) return;
+
+      const targetGroup = groups.find((group) => group.id === containing.groupId);
+      if (!targetGroup) return;
+
+      const movingFromTarget = targetGroup.tiles.some((tile) => tile.id === tileId);
+      const targetLength = targetGroup.tiles.length - (movingFromTarget ? 1 : 0);
+      const relativeX = moveX - containing.x;
+      const estimatedTileSlot = tileWidth + 3;
+      const insertionIndex = Math.max(
+        0,
+        Math.min(Math.round(relativeX / estimatedTileSlot), targetLength),
+      );
+      const nextPreview = { tileId, groupId: containing.groupId, insertionIndex };
+      const current = dragPreviewRef.current;
+
+      if (
+        current?.tileId === nextPreview.tileId &&
+        current.groupId === nextPreview.groupId &&
+        current.insertionIndex === nextPreview.insertionIndex
+      ) {
+        return;
+      }
+
+      LayoutAnimation.configureNext({
+        duration: 140,
+        update: { type: LayoutAnimation.Types.easeInEaseOut },
+        create: {
+          type: LayoutAnimation.Types.easeInEaseOut,
+          property: LayoutAnimation.Properties.opacity,
+        },
+        delete: {
+          type: LayoutAnimation.Types.easeInEaseOut,
+          property: LayoutAnimation.Properties.opacity,
+        },
+      });
+      dragPreviewRef.current = nextPreview;
+      setDragPreview(nextPreview);
+    },
+    [groups, tileWidth],
+  );
+
+  const beginTileDrag = useCallback(
+    (tileId: string) => {
+      setSelectedId(tileId);
+      dragPreviewRef.current = null;
+      setDragPreview(null);
+      groupMeasurementsRef.current = [];
+      measureDropTargets();
+    },
+    [measureDropTargets],
+  );
+
+  const handleDragStateChange = useCallback((dragging: boolean) => {
+    setIsDraggingTile(dragging);
+    if (!dragging) {
+      dragPreviewRef.current = null;
+      setDragPreview(null);
+    }
+  }, []);
+
   const handleTileDrop = useCallback(
     (tileId: string, moveX: number, moveY: number) => {
+      const preview = dragPreviewRef.current;
+      if (preview?.tileId === tileId) {
+        moveTileToGroup(tileId, preview.groupId, preview.insertionIndex);
+        return;
+      }
+
       const measurableGroups = Object.entries(groupRefs.current).filter(
         ([, ref]) => Boolean(ref),
       );
@@ -786,6 +904,7 @@ export default function EditResultScreen({ navigation, route }: any) {
   const changeColor = (color: string) => {
     updateSelected({
       color,
+      color_variant: color === "other" ? "green" : null,
       is_okey: false,
       is_joker: false,
       is_fake_okey: false,
@@ -964,9 +1083,10 @@ export default function EditResultScreen({ navigation, route }: any) {
         key={tile.id}
         tileId={tile.id}
         onTap={() => openEditor(tile.id)}
-        onDragSelect={() => setSelectedId(tile.id)}
+        onDragSelect={() => beginTileDrag(tile.id)}
+        onDragMove={selectDragPreview}
         onDrop={handleTileDrop}
-        onDragStateChange={setIsDraggingTile}
+        onDragStateChange={handleDragStateChange}
       >
         <TouchableOpacity
           activeOpacity={0.82}
@@ -999,7 +1119,7 @@ export default function EditResultScreen({ navigation, route }: any) {
                 style={[
                   styles.tileNumber,
                   {
-                    color: getColorValue(tile.color),
+                    color: getColorValue(tile.color, tile.color_variant),
                     fontSize: Math.max(14, tileWidth * 0.48),
                   },
                 ]}
@@ -1010,7 +1130,7 @@ export default function EditResultScreen({ navigation, route }: any) {
                 style={[
                   styles.tileDot,
                   {
-                    backgroundColor: getColorValue(tile.color),
+                    backgroundColor: getColorValue(tile.color, tile.color_variant),
                     width: Math.max(6, tileWidth * 0.16),
                     height: Math.max(6, tileWidth * 0.16),
                   },
@@ -1027,6 +1147,34 @@ export default function EditResultScreen({ navigation, route }: any) {
     const label = getGroupLabel(group.tiles, okeyNumber, okeyColor);
     const isPer = label.startsWith("PER");
     const isSeri = label.startsWith("SERİ");
+
+    const renderedTiles = group.tiles.map(renderTile);
+    if (dragPreview?.groupId === group.id) {
+      const sourceIndex = group.tiles.findIndex(
+        (tile) => tile.id === dragPreview.tileId,
+      );
+      const displayIndex =
+        sourceIndex >= 0 && sourceIndex < dragPreview.insertionIndex
+          ? dragPreview.insertionIndex + 1
+          : dragPreview.insertionIndex;
+      renderedTiles.splice(
+        Math.min(displayIndex, renderedTiles.length),
+        0,
+        <View
+          key={`drop-preview-${dragPreview.tileId}`}
+          style={[
+            styles.dropPreview,
+            {
+              width: tileWidth,
+              height: tileWidth * 1.42,
+              borderRadius: tileWidth * 0.22,
+            },
+          ]}
+        >
+          <Text allowFontScaling={false} style={styles.dropPreviewText}>Buraya</Text>
+        </View>,
+      );
+    }
 
     return (
       <View
@@ -1051,7 +1199,7 @@ export default function EditResultScreen({ navigation, route }: any) {
         >
           {label}
         </Text>
-        <View style={styles.groupTiles}>{group.tiles.map(renderTile)}</View>
+        <View style={styles.groupTiles}>{renderedTiles}</View>
       </View>
     );
   };
@@ -1275,10 +1423,10 @@ export default function EditResultScreen({ navigation, route }: any) {
                       </>
                     ) : selectedIsOkey ? null : (
                       <>
-                        <Text allowFontScaling={false} style={[styles.bigTileNumber, { color: getColorValue(selectedTile.color) }]}>
+                        <Text allowFontScaling={false} style={[styles.bigTileNumber, { color: getColorValue(selectedTile.color, selectedTile.color_variant) }]}>
                           {selectedTile.number}
                         </Text>
-                        <View style={[styles.bigDot, { backgroundColor: getColorValue(selectedTile.color) }]} />
+                        <View style={[styles.bigDot, { backgroundColor: getColorValue(selectedTile.color, selectedTile.color_variant) }]} />
                       </>
                     )}
                   </View>
@@ -1294,7 +1442,7 @@ export default function EditResultScreen({ navigation, route }: any) {
                         {selectedIsFakeOkey ? `★ = ${okeyNumber}` : selectedIsOkey ? "" : selectedTile.number}
                       </Text>
                       <Text allowFontScaling={false} style={styles.currentColor}>
-                        {selectedIsFakeOkey ? `${getColorLabel(okeyColor ?? undefined)} ${okeyNumber}` : selectedIsOkey ? "" : getColorLabel(selectedTile.color)}
+                        {selectedIsFakeOkey ? `${getColorLabel(okeyColor ?? undefined)} ${okeyNumber}` : selectedIsOkey ? "" : getColorLabel(selectedTile.color, selectedTile.color_variant)}
                       </Text>
                     </View>
                     <TouchableOpacity style={styles.numberButton} onPress={() => changeNumber("up")}>
@@ -1644,6 +1792,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     textAlign: "center",
+  },
+  dropPreview: {
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderStyle: "dashed",
+    borderColor: "#00FF88",
+    backgroundColor: "rgba(0,255,136,0.12)",
+  },
+  dropPreviewText: {
+    color: "#00FF88",
+    fontSize: 7,
+    fontWeight: "900",
+    transform: [{ rotateZ: "-90deg" }],
   },
   feedbackCard: {
     marginTop: 13,
