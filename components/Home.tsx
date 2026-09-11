@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   BackHandler,
   Image,
   StyleSheet,
@@ -16,6 +17,16 @@ import { useFocusEffect } from "@react-navigation/native";
 import Orientation from "react-native-orientation-locker";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { showAdEveryFiveCameraOpen } from "./InterstitialAdHelper";
+import { showRewardedAnalysisAd } from "./RewardedAdHelper";
+import {
+  API_BASE_URL,
+  exhaustUsageForDebug,
+  fetchUsageStatus,
+  grantRewardCredits,
+  getInstallationId,
+  type UsageStatus,
+} from "../services/usage";
+import { usePremium } from "./PremiumProvider";
 
 type BackendStatus = "ok" | "not_detected" | "uncertain";
 
@@ -27,13 +38,12 @@ const LOADING_MESSAGES = [
   "✨ Sonuç hazırlanıyor...",
 ];
 
-const API_URL = __DEV__
-  ? "https://countvision-backend-production.up.railway.app/count"
-  : "https://countvision-backend-production.up.railway.app/count";
+const API_URL = `${API_BASE_URL}/count`;
   
 export default function Home({ navigation }: any) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const { isPremium } = usePremium();
 
   const screenWidth = Math.max(width, height);
   const screenHeight = Math.min(width, height);
@@ -70,12 +80,14 @@ const [permissionStatus, setPermissionStatus] = useState<
   const [cameraReady, setCameraReady] = useState(false);
   const [photoTaken, setPhotoTaken] = useState(false);
   const [photoPath, setPhotoPath] = useState<string | null>(null);
-  const [count, setCount] = useState<number>(0);
+  const [, setCount] = useState<number>(0);
   const [status, setStatus] = useState<BackendStatus | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
   const [isTakingPhoto, setIsTakingPhoto] = useState(false);
+  const [usage, setUsage] = useState<UsageStatus | null>(null);
+  const [rewardLoading, setRewardLoading] = useState(false);
 
   const requestCameraPermission = useCallback(async () => {
   try {
@@ -137,6 +149,18 @@ const openAppSettings = useCallback(async () => {
     }, [navigation, resetPhoto])
   );
 
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      fetchUsageStatus().then((nextUsage) => {
+        if (active && nextUsage) setUsage(nextUsage);
+      });
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
+
 useEffect(() => {
   requestCameraPermission();
 }, [requestCameraPermission]);
@@ -191,6 +215,13 @@ setMessage(LOADING_MESSAGES[0]);
       formData.append("frame_y", String(frameYRatio));
       formData.append("frame_w", String(frameWRatio));
       formData.append("frame_h", String(FRAME_H));
+      // Test Store premium access is verified by RevenueCat on the client.
+      // Production will enforce the same state server-side through RevenueCat webhooks.
+      // Test Store has no production backend credentials. Release builds always
+      // send the identifier so premium access is enforced server-side.
+      if (!(__DEV__ && isPremium)) {
+        formData.append("installation_id", await getInstallationId());
+      }
 
 const controller = new AbortController();
 
@@ -210,7 +241,14 @@ try {
   clearTimeout(timeout);
 }
 
-      if (!res.ok) {
+if (res.status === 429) {
+  const quotaResponse = await res.json();
+  const quota = quotaResponse?.detail as UsageStatus | undefined;
+  if (quota) setUsage(quota);
+  throw new Error("Quota exceeded");
+}
+
+if (!res.ok) {
         throw new Error("Backend error");
       }
 
@@ -245,6 +283,7 @@ const safeCount =
 
 setCount(safeCount);
 setStatus(data.status);
+if (data.usage) setUsage(data.usage as UsageStatus);
 
 navigation.replace("EditResult", {
   result: data,
@@ -259,6 +298,8 @@ navigation.replace("EditResult", {
     setMessage("📶 İnternet bağlantınızı kontrol edin.");
   } else if (err?.message?.includes("Backend error")) {
     setMessage("📷 Fotoğraf analiz edilemedi.\nLütfen tekrar çekin.");
+  } else if (err?.message === "Quota exceeded") {
+    setMessage("Ücretsiz analiz hakların bitti.\nReklam izleyerek 5 hak kazanabilirsin.");
   } else {
     setMessage("❌ Beklenmeyen bir hata oluştu.\nLütfen tekrar deneyin.");
   }
@@ -268,6 +309,44 @@ navigation.replace("EditResult", {
 
 const takePhoto = async () => {
   if (!cameraRef.current || loading || !cameraReady || isTakingPhoto) return;
+
+  if (usage && !isPremium && usage.remaining <= 0) {
+    Alert.alert(
+      "Analiz hakkın bitti",
+      "Reklamı tamamlayarak 5 analiz hakkı kazanabilirsin.",
+      [
+        { text: "Vazgeç", style: "cancel" },
+        {
+          text: "Reklam izle · +5 hak",
+          onPress: async () => {
+            if (rewardLoading) return;
+            setRewardLoading(true);
+            try {
+              const earned = await showRewardedAnalysisAd();
+              if (!earned) {
+                Alert.alert("Reklam tamamlanmadı", "Hak eklenmedi. Tekrar deneyebilirsin.");
+                return;
+              }
+              const updated = await grantRewardCredits();
+              if (!updated) {
+                Alert.alert("Hak eklenemedi", "Bağlantını kontrol edip tekrar dene.");
+                return;
+              }
+              setUsage(updated);
+              Alert.alert("5 hak eklendi", "Analiz etmeye devam edebilirsin.");
+            } finally {
+              setRewardLoading(false);
+            }
+          },
+        },
+        {
+          text: "Premium’a geç",
+          onPress: () => navigation.navigate("Paywall"),
+        },
+      ],
+    );
+    return;
+  }
 
   try {
     setIsTakingPhoto(true);
@@ -425,6 +504,44 @@ if (!device) {
         </Text>
       </View>
 
+      <TouchableOpacity
+        activeOpacity={0.78}
+        accessibilityRole="button"
+        accessibilityLabel={isPremium ? "Premium üyelik aktif" : "Premium seçeneklerini aç"}
+        onPress={() => navigation.navigate("Paywall")}
+        style={[
+          styles.proBadge,
+          isPremium && styles.proBadgeActive,
+          { right: insets.right + (isPremium ? 72 : 145) },
+        ]}
+      >
+        <Text allowFontScaling={false} style={styles.proBadgeText}>
+          ♛ {isPremium ? "PREMIUM" : "PRO"}
+        </Text>
+      </TouchableOpacity>
+
+      {!isPremium && (
+        <TouchableOpacity
+          activeOpacity={__DEV__ ? 0.7 : 1}
+          onLongPress={
+            __DEV__
+              ? async () => {
+                  const exhausted = await exhaustUsageForDebug();
+                  if (exhausted) {
+                    setUsage(exhausted);
+                    Alert.alert("Test modu", "Analiz hakları test için sıfırlandı.");
+                  }
+                }
+              : undefined
+          }
+          style={[styles.usageBadge, { right: insets.right + 78 }]}
+        >
+          <Text allowFontScaling={false} style={styles.usageBadgeText}>
+            {usage?.remaining ?? 5} hak
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {cameraReady && (
         <View
           style={[
@@ -528,6 +645,12 @@ disabled={!cameraReady || loading || isTakingPhoto}
           )}
         </View>
       )}
+
+      {rewardLoading && (
+        <View style={styles.rewardLoadingOverlay}>
+          <ActivityIndicator size="large" color="#00FF88" />
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -549,6 +672,14 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 16,
     fontWeight: "800",
+  },
+  rewardLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+    elevation: 100,
+    backgroundColor: "rgba(10,8,7,0.72)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   fullPreview: {
     ...StyleSheet.absoluteFillObject,
@@ -589,6 +720,46 @@ const styles = StyleSheet.create({
   badgeText: {
     color: "#FFFFFF",
     fontSize: 12,
+    fontWeight: "900",
+  },
+  proBadge: {
+    position: "absolute",
+    top: 31,
+    height: 28,
+    paddingHorizontal: 11,
+    borderRadius: 14,
+    backgroundColor: "rgba(35,26,20,0.92)",
+    borderWidth: 1,
+    borderColor: "rgba(245,215,161,0.7)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  proBadgeActive: {
+    backgroundColor: "rgba(0,255,136,0.12)",
+    borderColor: "rgba(0,255,136,0.72)",
+  },
+  proBadgeText: {
+    color: "#F5D7A1",
+    fontSize: 10.5,
+    fontWeight: "900",
+    letterSpacing: 0.3,
+  },
+  usageBadge: {
+    position: "absolute",
+    top: 31,
+    minWidth: 58,
+    height: 28,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    backgroundColor: "rgba(12,18,15,0.86)",
+    borderWidth: 1,
+    borderColor: "rgba(0,255,136,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  usageBadgeText: {
+    color: "#00FF88",
+    fontSize: 11,
     fontWeight: "900",
   },
   scanArea: {

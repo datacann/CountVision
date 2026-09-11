@@ -9,7 +9,10 @@ import TutorialScreen from "./components/TutorialScreen";
 import Home from "./components/Home";
 import ResultScreen from "./components/ResultScreen";
 import EditResultScreen from "./components/EditResultScreen";
-import IndicatorSetupScreen from "./components/IndicatorSetupScreen";
+import { initializeAds } from "./services/ads";
+import { initializePurchases } from "./services/subscriptions";
+import { PremiumProvider } from "./components/PremiumProvider";
+import PaywallScreen from "./components/PaywallScreen";
 
 (Text as any).defaultProps = (Text as any).defaultProps || {};
 (Text as any).defaultProps.allowFontScaling = false;
@@ -22,6 +25,12 @@ const Stack = createNativeStackNavigator();
 export default function App() {
   useEffect(() => {
     Orientation.lockToLandscape();
+    initializeAds().catch((error) => {
+      if (__DEV__) console.warn("AdMob başlatılamadı", error);
+    });
+    initializePurchases().catch((error) => {
+      if (__DEV__) console.warn("RevenueCat başlatılamadı", error);
+    });
 
     return () => {
       Orientation.unlockAllOrientations();
@@ -30,6 +39,7 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
+      <PremiumProvider>
       <NavigationContainer>
         <Stack.Navigator
           initialRouteName="Splash"
@@ -45,8 +55,10 @@ export default function App() {
           <Stack.Screen name="Home" component={Home} />
           <Stack.Screen name="Result" component={ResultScreen} />
           <Stack.Screen name="EditResult" component={EditResultScreen} />
+          <Stack.Screen name="Paywall" component={PaywallScreen} />
         </Stack.Navigator>
       </NavigationContainer>
+      </PremiumProvider>
     </SafeAreaProvider>
   );
 }

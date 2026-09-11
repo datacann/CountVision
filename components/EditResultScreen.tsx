@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   BackHandler,
   LayoutAnimation,
@@ -20,6 +21,8 @@ import Orientation from "react-native-orientation-locker";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { showAdEveryFiveEditAction } from "./InterstitialAdHelper";
 import AdBanner from "./AdBanner";
+import { usePremium } from "./PremiumProvider";
+import { solveHighestHand } from "../services/highestHand";
 
 const COLORS = ["yellow", "red", "black", "other"];
 const GAP_THRESHOLD = 45;
@@ -464,6 +467,7 @@ function DraggableTile({
 
 export default function EditResultScreen({ navigation, route }: any) {
   const { width, height } = useWindowDimensions();
+  const { isPremium } = usePremium();
   const shortSide = Math.min(width, height);
   const scale = Math.min(1, shortSide / 390);
 
@@ -505,6 +509,7 @@ export default function EditResultScreen({ navigation, route }: any) {
   const [feedbackState, setFeedbackState] = useState<
     "idle" | "saving" | "correct" | "incorrect" | "error"
   >("idle");
+  const [isOptimizing, setIsOptimizing] = useState(false);
   const groupRefs = useRef<Record<string, View | null>>({});
   const groupMeasurementsRef = useRef<
     Array<{ groupId: string; x: number; y: number; width: number; height: number }>
@@ -591,6 +596,52 @@ export default function EditResultScreen({ navigation, route }: any) {
     [groups],
   );
   const selectedTile = allTiles.find((tile) => tile.id === selectedId);
+
+  const arrangeHighestHand = useCallback(async () => {
+    if (!isPremium) {
+      Alert.alert(
+        "♛ Premium özellik",
+        "En Yüksek El yalnızca Premium üyelikte kullanılabilir.",
+        [
+          { text: "Vazgeç", style: "cancel" },
+          { text: "Premium’u gör", onPress: () => navigation.navigate("Paywall") },
+        ],
+      );
+      return;
+    }
+    if (!okeyNumber || !okeyColor) {
+      Alert.alert("Okeyi seç", "En yüksek eli hesaplamak için önce okey taşını seç.");
+      return;
+    }
+
+    setIsOptimizing(true);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    try {
+      const solved = solveHighestHand(allTiles, okeyNumber, okeyColor);
+      let topCount = 0;
+      let bottomCount = 0;
+      const arranged: TileGroup[] = solved.groups.map((tiles, index) => {
+        const row: 0 | 1 = topCount <= bottomCount ? 0 : 1;
+        if (row === 0) topCount += tiles.length;
+        else bottomCount += tiles.length;
+        return { id: `best-${Date.now()}-${index}`, row, tiles };
+      });
+      solved.leftovers.forEach((tile, index) => {
+        const row: 0 | 1 = topCount <= bottomCount ? 0 : 1;
+        if (row === 0) topCount += 1;
+        else bottomCount += 1;
+        arranged.push({ id: `leftover-${Date.now()}-${index}`, row, tiles: [tile] });
+      });
+
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setGroups(arranged);
+      setSelectedId(arranged[0]?.tiles[0]?.id ?? null);
+    } catch (error: any) {
+      Alert.alert("Hesaplanamadı", error?.message ?? "Lütfen tekrar dene.");
+    } finally {
+      setIsOptimizing(false);
+    }
+  }, [allTiles, isPremium, navigation, okeyColor, okeyNumber]);
 
   const openEditor = useCallback((tileId: string) => {
     setSelectedId(tileId);
@@ -1255,6 +1306,26 @@ export default function EditResultScreen({ navigation, route }: any) {
 
           <View style={styles.headerRight}>
             <TouchableOpacity
+              activeOpacity={0.8}
+              style={[styles.highestHandButton, !isPremium && styles.highestHandButtonLocked]}
+              onPress={arrangeHighestHand}
+              disabled={isOptimizing}
+            >
+              {isOptimizing ? (
+                <ActivityIndicator color="#17120F" size="small" />
+              ) : (
+                <>
+                  <Text allowFontScaling={false} style={styles.highestHandCrown}>♛</Text>
+                  <Text
+                    allowFontScaling={false}
+                    style={[styles.highestHandText, !isPremium && styles.highestHandTextLocked]}
+                  >
+                    En Yüksek El
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
               style={[styles.okeyInfoBox, (!okeyNumber || !okeyColor) && styles.okeyInfoBoxEmpty]}
               activeOpacity={0.75}
               onPress={openOkeyPicker}
@@ -1647,6 +1718,23 @@ const styles = StyleSheet.create({
     maxWidth: 520,
   },
   headerRight: { flexDirection: "row", alignItems: "stretch", gap: 8 },
+  highestHandButton: {
+    minWidth: 116,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    backgroundColor: "#F5D7A1",
+    borderWidth: 1,
+    borderColor: "#FFF1CF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  highestHandButtonLocked: {
+    backgroundColor: "rgba(245,215,161,0.13)",
+    borderColor: "rgba(245,215,161,0.5)",
+  },
+  highestHandCrown: { color: "#C88929", fontSize: 17, fontWeight: "900" },
+  highestHandText: { color: "#17120F", fontSize: 11, fontWeight: "900" },
+  highestHandTextLocked: { color: "#F5D7A1" },
   okeyInfoBox: {
     minWidth: 142,
     backgroundColor: "rgba(245,215,161,0.13)",

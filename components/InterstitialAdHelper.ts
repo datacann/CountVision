@@ -2,6 +2,7 @@ import {
   AdEventType,
   InterstitialAd,
 } from "react-native-google-mobile-ads";
+import { canShowAds } from "../services/premiumAccess";
 
 const CAMERA_INTERVAL = 5;
 const EDIT_INTERVAL = 5;
@@ -25,7 +26,7 @@ function createInterstitial() {
 
 function showInterstitial(): Promise<void> {
   return new Promise((resolve) => {
-    if (isShowing) {
+    if (isShowing || !canShowAds()) {
       resolve();
       return;
     }
@@ -51,6 +52,10 @@ function showInterstitial(): Promise<void> {
     cleanups.push(
       interstitial.addAdEventListener(AdEventType.LOADED, async () => {
         if (finished || hasShown || isShowing) return;
+        if (!canShowAds()) {
+          finish();
+          return;
+        }
 
         hasShown = true;
         isShowing = true;
@@ -78,6 +83,7 @@ function showInterstitial(): Promise<void> {
 }
 
 export async function showAdEveryFiveCameraOpen(): Promise<void> {
+  if (!canShowAds()) return;
   cameraOpenCount += 1;
 
   if (cameraOpenCount >= CAMERA_INTERVAL) {
@@ -87,6 +93,7 @@ export async function showAdEveryFiveCameraOpen(): Promise<void> {
 }
 
 export async function showAdEveryFiveEditAction(): Promise<void> {
+  if (!canShowAds()) return;
   editActionCount += 1;
 
   if (editActionCount >= EDIT_INTERVAL) {

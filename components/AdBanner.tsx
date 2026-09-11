@@ -4,6 +4,7 @@ import {
   BannerAd,
   BannerAdSize,
 } from "react-native-google-mobile-ads";
+import { usePremium } from "./PremiumProvider";
 
 const BANNER_HEIGHT = 50;
 
@@ -11,6 +12,9 @@ const IOS_BANNER_AD_UNIT_ID =
   "ca-app-pub-4858173270247933/7319964658";
 
 export default function AdBanner() {
+  const { isPremium, isPremiumReady } = usePremium();
+  if (!isPremiumReady || isPremium) return null;
+
   return (
     <View style={styles.container}>
       <BannerAd
