@@ -258,7 +258,7 @@ const styles = StyleSheet.create({
   buttonDisabled: { opacity: 0.45 },
   renewalText: { color: "#8E8178", fontSize: 9.5, textAlign: "center", marginTop: 7 },
   footerLinks: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 13 },
-  linkText: { color: "#C9B7A7", fontSize: 10.5, fontWeight: "800", textDecorationLine: "underline" },
+  linkText: { color: "#C9B7A7", fontSize: 10.5, fontWeight: "800" },
   dot: { color: "#675B54", fontSize: 10 },
   activeCard: { alignItems: "center", paddingHorizontal: 16 },
   activeCrown: { color: "#F5D7A1", fontSize: 42 },
