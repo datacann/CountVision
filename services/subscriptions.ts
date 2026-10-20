@@ -11,7 +11,7 @@ const TEST_STORE_API_KEY = "test_WUNQQjcyJKZtfClKeEEPUOfpyGV";
 // Public RevenueCat SDK keys. Fill these after the real App Store and Play Store
 // configurations are created in RevenueCat; secret keys must never be put here.
 const IOS_REVENUECAT_API_KEY = "appl_faqyTmkRUjDwubdRLFFbhoJPIkb";
-const ANDROID_REVENUECAT_API_KEY = "";
+const ANDROID_REVENUECAT_API_KEY = "goog_dArXYuJTZgIwHYcuoxeAqCVdFLe";
 export const PREMIUM_ENTITLEMENT_ID = "101_hesaplama_pro";
 
 export type SubscriptionPlan = "monthly" | "annual";

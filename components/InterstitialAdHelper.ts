@@ -2,6 +2,7 @@ import {
   AdEventType,
   InterstitialAd,
 } from "react-native-google-mobile-ads";
+import { Platform } from "react-native";
 import { canShowAds } from "../services/premiumAccess";
 
 const CAMERA_INTERVAL = 5;
@@ -10,6 +11,8 @@ const LOAD_TIMEOUT_MS = 5000;
 
 const IOS_INTERSTITIAL_AD_UNIT_ID =
   "ca-app-pub-4858173270247933/8176529565";
+const ANDROID_INTERSTITIAL_AD_UNIT_ID =
+  "ca-app-pub-4858173270247933/1277929748";
 
 let cameraOpenCount = 0;
 let editActionCount = 0;
@@ -17,7 +20,9 @@ let isShowing = false;
 
 function createInterstitial() {
   return InterstitialAd.createForAdRequest(
-    IOS_INTERSTITIAL_AD_UNIT_ID,
+    Platform.OS === "ios"
+      ? IOS_INTERSTITIAL_AD_UNIT_ID
+      : ANDROID_INTERSTITIAL_AD_UNIT_ID,
     {
       requestNonPersonalizedAdsOnly: true,
     }

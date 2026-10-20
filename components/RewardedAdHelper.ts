@@ -10,6 +10,7 @@ import { canShowAds } from "../services/premiumAccess";
 
 const LOAD_TIMEOUT_MS = 30_000;
 const IOS_REWARDED_AD_UNIT_ID = "ca-app-pub-4858173270247933/4083139214";
+const ANDROID_REWARDED_AD_UNIT_ID = "ca-app-pub-4858173270247933/7937250595";
 
 export async function showRewardedAnalysisAd(): Promise<boolean> {
   if (!canShowAds()) return false;
@@ -22,9 +23,11 @@ export async function showRewardedAnalysisAd(): Promise<boolean> {
 
   return new Promise((resolve) => {
     const rewarded = RewardedAd.createForAdRequest(
-      __DEV__ || Platform.OS !== "ios"
+      __DEV__
         ? TestIds.REWARDED
-        : IOS_REWARDED_AD_UNIT_ID,
+        : Platform.OS === "ios"
+          ? IOS_REWARDED_AD_UNIT_ID
+          : ANDROID_REWARDED_AD_UNIT_ID,
       {
       requestNonPersonalizedAdsOnly: true,
       },
