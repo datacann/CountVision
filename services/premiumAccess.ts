@@ -24,6 +24,32 @@ export function subscribePremiumAccess(
   };
 }
 
+/**
+ * Premium durumu "unknown" ise belirlenene kadar (en fazla timeoutMs) bekler.
+ * Süre dolarsa "unknown" döner.
+ */
+export function waitForPremiumAccess(
+  timeoutMs: number,
+): Promise<PremiumAccessState> {
+  if (premiumAccessState !== "unknown") {
+    return Promise.resolve(premiumAccessState);
+  }
+
+  return new Promise((resolve) => {
+    let unsubscribe = () => {};
+    const timer = setTimeout(() => {
+      unsubscribe();
+      resolve(premiumAccessState);
+    }, timeoutMs);
+    unsubscribe = subscribePremiumAccess((state) => {
+      if (state === "unknown") return;
+      clearTimeout(timer);
+      unsubscribe();
+      resolve(state);
+    });
+  });
+}
+
 export function canShowAds(): boolean {
   return premiumAccessState === "free";
 }

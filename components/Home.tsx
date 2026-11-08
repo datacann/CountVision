@@ -30,6 +30,10 @@ import {
   getInstallationId,
   type UsageStatus,
 } from "../services/usage";
+import {
+  getPremiumAccessState,
+  waitForPremiumAccess,
+} from "../services/premiumAccess";
 import { usePremium } from "./PremiumProvider";
 
 type BackendStatus = "ok" | "not_detected" | "uncertain";
@@ -43,6 +47,8 @@ const LOADING_MESSAGES = [
 ];
 
 const API_URL = `${API_BASE_URL}/count`;
+// Hak bittiğinde premium durumu henüz belli değilse en fazla bu kadar beklenir.
+const PREMIUM_WAIT_TIMEOUT_MS = 10_000;
   
 export default function Home({ navigation }: any) {
   const { width, height } = useWindowDimensions();
@@ -92,6 +98,7 @@ const [permissionStatus, setPermissionStatus] = useState<
   const [isTakingPhoto, setIsTakingPhoto] = useState(false);
   const [usage, setUsage] = useState<UsageStatus | null>(null);
   const [rewardLoading, setRewardLoading] = useState(false);
+  const [checkingPremium, setCheckingPremium] = useState(false);
 
   const requestCameraPermission = useCallback(async () => {
   try {
@@ -312,10 +319,7 @@ navigation.replace("EditResult", {
   setLoading(false);
   }; };
 
-const takePhoto = async () => {
-  if (!cameraRef.current || loading || !cameraReady || isTakingPhoto) return;
-
-  if (usage && !isPremium && usage.remaining <= 0) {
+const showQuotaAlert = () => {
     Alert.alert(
       "Analiz hakkın bitti",
       "Reklamı tamamlayarak 5 analiz hakkı kazanabilirsin.",
@@ -350,7 +354,44 @@ const takePhoto = async () => {
         },
       ],
     );
+};
+
+const takePhoto = async () => {
+  if (
+    !cameraRef.current ||
+    loading ||
+    !cameraReady ||
+    isTakingPhoto ||
+    checkingPremium
+  ) {
     return;
+  }
+
+  if (usage && !isPremium && usage.remaining <= 0) {
+    // Premium durumu henüz yüklenmediyse "Reklam izle" teklifini açmadan önce
+    // bekle: kullanıcı aslında aboneyse reklam teklifine gerek yok.
+    let access = getPremiumAccessState();
+    if (access === "unknown") {
+      setCheckingPremium(true);
+      try {
+        access = await waitForPremiumAccess(PREMIUM_WAIT_TIMEOUT_MS);
+      } finally {
+        setCheckingPremium(false);
+      }
+    }
+
+    if (access === "unknown") {
+      Alert.alert(
+        "Üyelik durumu kontrol edilemedi",
+        "Bağlantını kontrol edip tekrar dene.",
+      );
+      return;
+    }
+
+    if (access === "free") {
+      showQuotaAlert();
+      return;
+    }
   }
 
   try {
@@ -651,7 +692,7 @@ disabled={!cameraReady || loading || isTakingPhoto}
         </View>
       )}
 
-      {rewardLoading && (
+      {(rewardLoading || checkingPremium) && (
         <View style={styles.rewardLoadingOverlay}>
           <ActivityIndicator size="large" color="#00FF88" />
         </View>
