@@ -1,6 +1,7 @@
 import {
   AdEventType,
   InterstitialAd,
+  TestIds,
 } from "react-native-google-mobile-ads";
 import { Platform } from "react-native";
 import { canShowAds } from "../services/premiumAccess";
@@ -20,9 +21,11 @@ let isShowing = false;
 
 function createInterstitial() {
   return InterstitialAd.createForAdRequest(
-    Platform.OS === "ios"
-      ? IOS_INTERSTITIAL_AD_UNIT_ID
-      : ANDROID_INTERSTITIAL_AD_UNIT_ID,
+    __DEV__
+      ? TestIds.INTERSTITIAL
+      : Platform.OS === "ios"
+        ? IOS_INTERSTITIAL_AD_UNIT_ID
+        : ANDROID_INTERSTITIAL_AD_UNIT_ID,
     {
       requestNonPersonalizedAdsOnly: true,
     }

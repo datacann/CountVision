@@ -3,6 +3,7 @@ import { Platform, StyleSheet, View } from "react-native";
 import {
   BannerAd,
   BannerAdSize,
+  TestIds,
 } from "react-native-google-mobile-ads";
 import { usePremium } from "./PremiumProvider";
 
@@ -21,9 +22,11 @@ export default function AdBanner() {
     <View style={styles.container}>
       <BannerAd
         unitId={
-          Platform.OS === "ios"
-            ? IOS_BANNER_AD_UNIT_ID
-            : ANDROID_BANNER_AD_UNIT_ID
+          __DEV__
+            ? TestIds.BANNER
+            : Platform.OS === "ios"
+              ? IOS_BANNER_AD_UNIT_ID
+              : ANDROID_BANNER_AD_UNIT_ID
         }
         size={BannerAdSize.BANNER}
         requestOptions={{
