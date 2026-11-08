@@ -21,7 +21,10 @@ import {
   recordAdAction,
   showInterstitialIfDue,
 } from "./InterstitialAdHelper";
-import { showRewardedAnalysisAd } from "./RewardedAdHelper";
+import {
+  showRewardedAnalysisAd,
+  type RewardedAdResult,
+} from "./RewardedAdHelper";
 import {
   API_BASE_URL,
   exhaustUsageForDebug,
@@ -49,6 +52,28 @@ const LOADING_MESSAGES = [
 const API_URL = `${API_BASE_URL}/count`;
 // Hak bittiğinde premium durumu henüz belli değilse en fazla bu kadar beklenir.
 const PREMIUM_WAIT_TIMEOUT_MS = 10_000;
+
+const REWARDED_AD_FAILURE_MESSAGES: Record<
+  Exclude<RewardedAdResult, "earned">,
+  [string, string]
+> = {
+  dismissed: [
+    "Reklam tamamlanmadı",
+    "Hak eklenmedi. Reklamı sonuna kadar izlersen 5 hak kazanırsın.",
+  ],
+  no_fill: [
+    "Şu an reklam bulunamadı",
+    "Şu anda izlenebilecek bir reklam yok. Birkaç dakika sonra tekrar dene ya da Premium’a geç.",
+  ],
+  network_error: [
+    "Reklam yüklenemedi",
+    "İnternet bağlantını kontrol edip tekrar dene.",
+  ],
+  error: [
+    "Reklam açılamadı",
+    "Bir sorun oluştu. Biraz sonra tekrar dene.",
+  ],
+};
   
 export default function Home({ navigation }: any) {
   const { width, height } = useWindowDimensions();
@@ -331,9 +356,10 @@ const showQuotaAlert = () => {
             if (rewardLoading) return;
             setRewardLoading(true);
             try {
-              const earned = await showRewardedAnalysisAd();
-              if (!earned) {
-                Alert.alert("Reklam tamamlanmadı", "Hak eklenmedi. Tekrar deneyebilirsin.");
+              const result = await showRewardedAnalysisAd();
+              if (result !== "earned") {
+                const [title, body] = REWARDED_AD_FAILURE_MESSAGES[result];
+                Alert.alert(title, body);
                 return;
               }
               const updated = await grantRewardCredits();
