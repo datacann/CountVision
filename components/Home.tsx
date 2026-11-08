@@ -16,7 +16,11 @@ import { Camera, useCameraDevice } from "react-native-vision-camera";
 import { useFocusEffect } from "@react-navigation/native";
 import Orientation from "react-native-orientation-locker";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { showAdEveryFiveCameraOpen } from "./InterstitialAdHelper";
+import {
+  AD_WEIGHT_CAMERA_OPEN,
+  recordAdAction,
+  showInterstitialIfDue,
+} from "./InterstitialAdHelper";
 import { showRewardedAnalysisAd } from "./RewardedAdHelper";
 import {
   API_BASE_URL,
@@ -131,7 +135,8 @@ const openAppSettings = useCallback(async () => {
         setCameraReady(true);
       }, 700);
 
-      showAdEveryFiveCameraOpen();
+      recordAdAction(AD_WEIGHT_CAMERA_OPEN);
+      showInterstitialIfDue();
 
       const backHandler = BackHandler.addEventListener(
         "hardwareBackPress",

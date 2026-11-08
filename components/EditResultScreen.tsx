@@ -16,16 +16,22 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import Orientation from "react-native-orientation-locker";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { showAdEveryFiveEditAction } from "./InterstitialAdHelper";
+import {
+  AD_WEIGHT_EDIT_ACTION,
+  recordAdAction,
+  showInterstitialIfDue,
+} from "./InterstitialAdHelper";
 import AdBanner from "./AdBanner";
 import { usePremium } from "./PremiumProvider";
 import { solveHighestHand } from "../services/highestHand";
 
 const COLORS = ["yellow", "red", "black", "other"];
 const GAP_THRESHOLD = 45;
+// Son işlemden sonra kullanıcı bu kadar süre boşta kalırsa reklam denenir.
+const AD_IDLE_DELAY_MS = 1500;
 const FEEDBACK_URL =
   "https://countvision-backend-production.up.railway.app/feedback";
 
@@ -515,6 +521,38 @@ export default function EditResultScreen({ navigation, route }: any) {
     Array<{ groupId: string; x: number; y: number; width: number; height: number }>
   >([]);
   const dragPreviewRef = useRef<typeof dragPreview>(null);
+  const isFocused = useIsFocused();
+
+  // Geçiş reklamı işlem ortasında değil, kullanıcı bir işlemi bitirip
+  // boşta kaldığında gösterilir. Taş düzenleme modalındaki her tıklama ayrı
+  // sayılmaz; modal kapandığında, değişiklik yapıldıysa tek işlem sayılır.
+  const [adCheckToken, setAdCheckToken] = useState(0);
+  const editorHadChangesRef = useRef(false);
+  const wasEditorVisibleRef = useRef(false);
+
+  const recordEditAction = useCallback(() => {
+    recordAdAction(AD_WEIGHT_EDIT_ACTION);
+    setAdCheckToken((token) => token + 1);
+  }, []);
+
+  useEffect(() => {
+    if (wasEditorVisibleRef.current && !editorVisible && editorHadChangesRef.current) {
+      editorHadChangesRef.current = false;
+      recordEditAction();
+    }
+    wasEditorVisibleRef.current = editorVisible;
+  }, [editorVisible, recordEditAction]);
+
+  const isBusyForAd =
+    !isFocused || isDraggingTile || editorVisible || okeyPickerVisible || isOptimizing;
+
+  useEffect(() => {
+    if (adCheckToken === 0 || isBusyForAd) return;
+    const timer = setTimeout(() => {
+      showInterstitialIfDue();
+    }, AD_IDLE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [adCheckToken, isBusyForAd]);
 
   const openOkeyPicker = useCallback(() => {
     // Popup'ta varsayılan olarak görünen değerler state'e de yazılsın.
@@ -736,9 +774,9 @@ export default function EditResultScreen({ navigation, route }: any) {
       });
 
       setSelectedId(tileId);
-      void showAdEveryFiveEditAction();
+      recordEditAction();
     },
-    [],
+    [recordEditAction],
   );
 
   const measureDropTargets = useCallback(() => {
@@ -933,7 +971,7 @@ export default function EditResultScreen({ navigation, route }: any) {
         ),
       })),
     );
-    await showAdEveryFiveEditAction();
+    editorHadChangesRef.current = true;
   };
 
   const changeNumber = (direction: "up" | "down") => {
@@ -1030,7 +1068,7 @@ export default function EditResultScreen({ navigation, route }: any) {
       return newGroups;
     });
 
-    await showAdEveryFiveEditAction();
+    recordEditAction();
   };
 
   const mergeSelectedToLeft = async () => {
@@ -1067,7 +1105,7 @@ export default function EditResultScreen({ navigation, route }: any) {
         );
     });
 
-    await showAdEveryFiveEditAction();
+    recordEditAction();
   };
 
   const removeTile = async () => {
@@ -1086,8 +1124,8 @@ export default function EditResultScreen({ navigation, route }: any) {
       return newGroups;
     });
 
+    editorHadChangesRef.current = true;
     setEditorVisible(false);
-    await showAdEveryFiveEditAction();
   };
 
   const addTile = async () => {
@@ -1112,8 +1150,8 @@ export default function EditResultScreen({ navigation, route }: any) {
     ]);
 
     setSelectedId(newTile.id);
+    editorHadChangesRef.current = true;
     setEditorVisible(true);
-    await showAdEveryFiveEditAction();
   };
 
   const renderTile = (tile: Tile) => {
