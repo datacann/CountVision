@@ -6,6 +6,7 @@ import {
   TestIds,
 } from "react-native-google-mobile-ads";
 import { usePremium } from "./PremiumProvider";
+import { adErrorCode, track, trackAdPaid } from "../services/analytics";
 
 const BANNER_HEIGHT = 50;
 
@@ -35,8 +36,12 @@ export default function AdBanner() {
         requestOptions={{
           requestNonPersonalizedAdsOnly: true,
         }}
+        onAdImpression={() => track("ad_banner_impression")}
+        onAdClicked={() => track("ad_banner_clicked")}
+        onPaid={(event) => trackAdPaid("banner", event)}
         onAdFailedToLoad={(error) => {
           if (__DEV__) console.warn("Banner reklam yüklenemedi", error);
+          track("ad_banner_failed", { code: adErrorCode(error) });
           setFailed(true);
         }}
       />

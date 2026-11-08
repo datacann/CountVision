@@ -37,6 +37,7 @@ import {
   getPremiumAccessState,
   waitForPremiumAccess,
 } from "../services/premiumAccess";
+import { track } from "../services/analytics";
 import { usePremium } from "./PremiumProvider";
 
 type BackendStatus = "ok" | "not_detected" | "uncertain";
@@ -168,7 +169,7 @@ const openAppSettings = useCallback(async () => {
       }, 700);
 
       recordAdAction(AD_WEIGHT_CAMERA_OPEN);
-      showInterstitialIfDue();
+      showInterstitialIfDue("camera_open");
 
       const backHandler = BackHandler.addEventListener(
         "hardwareBackPress",
@@ -236,6 +237,7 @@ useEffect(() => {
 }, [loading]);
 
   const sendToBackend = async (imagePath: string) => {
+    const analysisStartedAt = Date.now();
     try {
       setLoading(true);
 setLoadingMessageIndex(0);
@@ -318,6 +320,12 @@ const safeCount =
     ? data.count
     : 0;
 
+track("analysis_succeeded", {
+  status: data.status,
+  count: safeCount,
+  duration_ms: Date.now() - analysisStartedAt,
+});
+
 setCount(safeCount);
 setStatus(data.status);
 if (data.usage) setUsage(data.usage as UsageStatus);
@@ -328,6 +336,23 @@ navigation.replace("EditResult", {
 } catch (err: any) {
   setStatus("not_detected");
   setCount(0);
+
+  const failureReason =
+    err?.name === "AbortError"
+      ? "timeout"
+      : err?.message?.includes("Network request failed")
+        ? "network"
+        : err?.message === "Quota exceeded"
+          ? "quota"
+          : err?.message?.includes("Backend error")
+            ? "backend"
+            : err?.message === "Invalid response"
+              ? "invalid_response"
+              : "unexpected";
+  track("analysis_failed", {
+    reason: failureReason,
+    duration_ms: Date.now() - analysisStartedAt,
+  });
 
   if (err?.name === "AbortError") {
     setMessage("⏳ İşlem zaman aşımına uğradı.\nLütfen tekrar deneyin.");
@@ -345,14 +370,20 @@ navigation.replace("EditResult", {
   }; };
 
 const showQuotaAlert = () => {
+    track("quota_prompt_shown");
     Alert.alert(
       "Analiz hakkın bitti",
       "Reklamı tamamlayarak 5 analiz hakkı kazanabilirsin.",
       [
-        { text: "Vazgeç", style: "cancel" },
+        {
+          text: "Vazgeç",
+          style: "cancel",
+          onPress: () => track("quota_prompt_choice", { choice: "cancel" }),
+        },
         {
           text: "Reklam izle · +5 hak",
           onPress: async () => {
+            track("quota_prompt_choice", { choice: "watch_ad" });
             if (rewardLoading) return;
             setRewardLoading(true);
             try {
@@ -364,9 +395,11 @@ const showQuotaAlert = () => {
               }
               const updated = await grantRewardCredits();
               if (!updated) {
+                track("reward_credits_failed");
                 Alert.alert("Hak eklenemedi", "Bağlantını kontrol edip tekrar dene.");
                 return;
               }
+              track("reward_credits_granted", { remaining: updated.remaining });
               setUsage(updated);
               Alert.alert("5 hak eklendi", "Analiz etmeye devam edebilirsin.");
             } finally {
@@ -376,7 +409,10 @@ const showQuotaAlert = () => {
         },
         {
           text: "Premium’a geç",
-          onPress: () => navigation.navigate("Paywall"),
+          onPress: () => {
+            track("quota_prompt_choice", { choice: "premium" });
+            navigation.navigate("Paywall");
+          },
         },
       ],
     );
@@ -407,6 +443,7 @@ const takePhoto = async () => {
     }
 
     if (access === "unknown") {
+      track("premium_state_timeout");
       Alert.alert(
         "Üyelik durumu kontrol edilemedi",
         "Bağlantını kontrol edip tekrar dene.",
@@ -429,6 +466,7 @@ const photo = await cameraRef.current.takePhoto({
 });
 
     const imagePath = `file://${photo.path}`;
+    track("photo_captured", { remaining: usage?.remaining ?? null });
 
     setPhotoPath(imagePath);
     setPhotoTaken(true);

@@ -5,6 +5,7 @@ import {
 } from "react-native-google-mobile-ads";
 import { Platform } from "react-native";
 import { initializeAds } from "../services/ads";
+import { adErrorCode, track, trackAdPaid } from "../services/analytics";
 import {
   canShowAds,
   subscribePremiumAccess,
@@ -32,6 +33,9 @@ const ANDROID_INTERSTITIAL_AD_UNIT_ID =
 
 type LoadState = "idle" | "loading" | "loaded";
 
+/** Reklamın hangi güvenli anda denendiği (analitik için). */
+export type InterstitialTrigger = "camera_open" | "edit_idle";
+
 let ad: InterstitialAd | null = null;
 let loadState: LoadState = "idle";
 let loadedAt = 0;
@@ -40,7 +44,11 @@ let removeListeners: Array<() => void> = [];
 let retryCount = 0;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
+let loadStartedAt = 0;
+
 let isShowing = false;
+let showingTrigger: InterstitialTrigger | null = null;
+let shownAt = 0;
 let resolveShowing: ((shown: boolean) => void) | null = null;
 
 let adPoints = 0;
@@ -69,7 +77,7 @@ function clearRetry() {
   }
 }
 
-function scheduleRetry() {
+function scheduleRetry(): number {
   clearRetry();
   const delay = Math.min(RETRY_BASE_MS * 2 ** retryCount, RETRY_MAX_MS);
   retryCount += 1;
@@ -77,11 +85,13 @@ function scheduleRetry() {
     retryTimer = null;
     preloadInterstitial();
   }, delay);
+  return delay;
 }
 
 function finishShowing(shown: boolean) {
   if (!isShowing) return;
   isShowing = false;
+  showingTrigger = null;
   const resolve = resolveShowing;
   resolveShowing = null;
   discardAd();
@@ -119,6 +129,7 @@ export function preloadInterstitial(): void {
         requestNonPersonalizedAdsOnly: true,
       });
       ad = next;
+      loadStartedAt = Date.now();
 
       removeListeners = [
         next.addAdEventListener(AdEventType.LOADED, () => {
@@ -126,20 +137,41 @@ export function preloadInterstitial(): void {
           loadState = "loaded";
           loadedAt = Date.now();
           retryCount = 0;
+          track("ad_interstitial_loaded", { load_ms: loadedAt - loadStartedAt });
         }),
         next.addAdEventListener(AdEventType.CLOSED, () => {
           if (ad !== next) return;
+          track("ad_interstitial_closed", {
+            trigger: showingTrigger,
+            view_ms: Date.now() - shownAt,
+          });
           finishShowing(true);
+        }),
+        next.addAdEventListener(AdEventType.CLICKED, () => {
+          if (ad !== next) return;
+          track("ad_interstitial_clicked", { trigger: showingTrigger });
+        }),
+        next.addAdEventListener(AdEventType.PAID, (event) => {
+          trackAdPaid("interstitial", event);
         }),
         next.addAdEventListener(AdEventType.ERROR, (error) => {
           if (ad !== next) return;
           if (__DEV__) console.warn("Geçiş reklamı hatası", error);
           if (isShowing) {
+            track("ad_interstitial_show_failed", {
+              trigger: showingTrigger,
+              code: adErrorCode(error),
+            });
             finishShowing(false);
             return;
           }
           discardAd();
-          scheduleRetry();
+          const retryInMs = scheduleRetry();
+          track("ad_interstitial_load_failed", {
+            code: adErrorCode(error),
+            load_ms: Date.now() - loadStartedAt,
+            retry_in_ms: retryInMs,
+          });
         }),
       ];
 
@@ -165,12 +197,31 @@ export function recordAdAction(weight: number): void {
  * yüklenmiş bir reklam hazırsa hemen gösterir; hazır değilse beklemez,
  * yüklemeyi başlatıp false döner. Reklam kapanınca true ile çözülür.
  */
-export function showInterstitialIfDue(): Promise<boolean> {
+export function showInterstitialIfDue(
+  trigger: InterstitialTrigger,
+): Promise<boolean> {
   if (!canShowAds() || isShowing) return Promise.resolve(false);
   if (adPoints < POINTS_PER_AD) return Promise.resolve(false);
-  if (Date.now() - lastShownAt < MIN_INTERVAL_MS) return Promise.resolve(false);
+
+  // Buradan sonrası "reklam sırası gelmiş" demek; atlanırsa nedeni kaydedilir.
+  const sinceLastMs = lastShownAt ? Date.now() - lastShownAt : null;
+  if (sinceLastMs !== null && sinceLastMs < MIN_INTERVAL_MS) {
+    track("ad_interstitial_skipped", {
+      trigger,
+      reason: "cooldown",
+      points: adPoints,
+      since_last_ms: sinceLastMs,
+    });
+    return Promise.resolve(false);
+  }
 
   if (!hasFreshAd() || !ad) {
+    track("ad_interstitial_skipped", {
+      trigger,
+      reason: "not_ready",
+      points: adPoints,
+      load_state: loadState,
+    });
     preloadInterstitial();
     return Promise.resolve(false);
   }
@@ -179,14 +230,27 @@ export function showInterstitialIfDue(): Promise<boolean> {
   const previousPoints = adPoints;
   const previousShownAt = lastShownAt;
 
+  track("ad_interstitial_shown", {
+    trigger,
+    points: adPoints,
+    since_last_ms: sinceLastMs,
+    ad_age_ms: Date.now() - loadedAt,
+  });
+
   isShowing = true;
+  showingTrigger = trigger;
+  shownAt = Date.now();
   adPoints = 0;
-  lastShownAt = Date.now();
+  lastShownAt = shownAt;
 
   return new Promise((resolve) => {
     resolveShowing = resolve;
     current.show().catch((error) => {
       if (__DEV__) console.warn("Geçiş reklamı gösterilemedi", error);
+      track("ad_interstitial_show_failed", {
+        trigger,
+        code: adErrorCode(error),
+      });
       adPoints = previousPoints;
       lastShownAt = previousShownAt;
       finishShowing(false);

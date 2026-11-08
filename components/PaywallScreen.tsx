@@ -20,6 +20,7 @@ import {
   type SubscriptionOption,
   type SubscriptionPlan,
 } from "../services/subscriptions";
+import { track } from "../services/analytics";
 
 const BENEFITS = [
   "Reklamsız ve kesintisiz kullanım",
@@ -56,15 +57,25 @@ export default function PaywallScreen({ navigation }: any) {
   const buy = async () => {
     if (processing || !selectedOption) return;
     setProcessing(selectedPlan);
+    track("purchase_started", { plan: selectedPlan });
     try {
       const premium = await purchaseSubscription(selectedPlan);
       await refreshPremium();
+      track("purchase_result", {
+        plan: selectedPlan,
+        result: premium ? "success" : "not_active",
+      });
       if (premium) {
         Alert.alert("Premium aktif ♛", "Tüm Premium özellikler kullanıma açıldı.", [
           { text: "Harika", onPress: () => navigation.goBack() },
         ]);
       }
     } catch (error: any) {
+      track("purchase_result", {
+        plan: selectedPlan,
+        result: error?.userCancelled ? "cancelled" : "error",
+        code: error?.code == null ? null : String(error.code),
+      });
       if (!error?.userCancelled) {
         Alert.alert("Satın alma tamamlanamadı", error?.message ?? "Lütfen tekrar dene.");
       }
@@ -79,11 +90,13 @@ export default function PaywallScreen({ navigation }: any) {
     try {
       const premium = await restoreSubscription();
       await refreshPremium();
+      track("restore_result", { result: premium ? "restored" : "not_found" });
       Alert.alert(
         premium ? "Satın alma geri yüklendi" : "Satın alma bulunamadı",
         premium ? "Premium özelliklerin yeniden açıldı." : "Bu mağaza hesabında aktif abonelik bulunamadı.",
       );
     } catch (error: any) {
+      track("restore_result", { result: "error" });
       Alert.alert("Geri yüklenemedi", error?.message ?? "Lütfen tekrar dene.");
     } finally {
       setProcessing(null);

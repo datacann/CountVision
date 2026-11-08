@@ -27,6 +27,7 @@ import {
 import AdBanner from "./AdBanner";
 import { usePremium } from "./PremiumProvider";
 import { solveHighestHand } from "../services/highestHand";
+import { track } from "../services/analytics";
 
 const COLORS = ["yellow", "red", "black", "other"];
 const GAP_THRESHOLD = 45;
@@ -549,7 +550,7 @@ export default function EditResultScreen({ navigation, route }: any) {
   useEffect(() => {
     if (adCheckToken === 0 || isBusyForAd) return;
     const timer = setTimeout(() => {
-      showInterstitialIfDue();
+      showInterstitialIfDue("edit_idle");
     }, AD_IDLE_DELAY_MS);
     return () => clearTimeout(timer);
   }, [adCheckToken, isBusyForAd]);
@@ -637,12 +638,19 @@ export default function EditResultScreen({ navigation, route }: any) {
 
   const arrangeHighestHand = useCallback(async () => {
     if (!isPremium) {
+      track("premium_gate_shown", { feature: "highest_hand" });
       Alert.alert(
         "♛ Premium özellik",
         "En Yüksek El yalnızca Premium üyelikte kullanılabilir.",
         [
           { text: "Vazgeç", style: "cancel" },
-          { text: "Premium’u gör", onPress: () => navigation.navigate("Paywall") },
+          {
+            text: "Premium’u gör",
+            onPress: () => {
+              track("premium_gate_choice", { feature: "highest_hand", choice: "paywall" });
+              navigation.navigate("Paywall");
+            },
+          },
         ],
       );
       return;

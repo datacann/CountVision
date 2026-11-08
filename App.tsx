@@ -1,5 +1,8 @@
 import React, { useEffect } from "react";
-import { NavigationContainer } from "@react-navigation/native";
+import {
+  NavigationContainer,
+  createNavigationContainerRef,
+} from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Text, TextInput } from "react-native";
@@ -13,6 +16,7 @@ import { initializeAds } from "./services/ads";
 import { initializePurchases } from "./services/subscriptions";
 import { PremiumProvider } from "./components/PremiumProvider";
 import PaywallScreen from "./components/PaywallScreen";
+import { setCurrentScreen, startAnalytics } from "./services/analytics";
 
 (Text as any).defaultProps = (Text as any).defaultProps || {};
 (Text as any).defaultProps.allowFontScaling = false;
@@ -20,7 +24,15 @@ import PaywallScreen from "./components/PaywallScreen";
 (TextInput as any).defaultProps = (TextInput as any).defaultProps || {};
 (TextInput as any).defaultProps.allowFontScaling = false;
 
+// session_start ilk screen_view'dan önce kaydedilsin diye modül yüklenirken.
+startAnalytics();
+
 const Stack = createNativeStackNavigator();
+const navigationRef = createNavigationContainerRef();
+
+function trackCurrentScreen() {
+  setCurrentScreen(navigationRef.getCurrentRoute()?.name);
+}
 
 export default function App() {
   useEffect(() => {
@@ -40,7 +52,11 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <PremiumProvider>
-      <NavigationContainer>
+      <NavigationContainer
+        ref={navigationRef}
+        onReady={trackCurrentScreen}
+        onStateChange={trackCurrentScreen}
+      >
         <Stack.Navigator
           initialRouteName="Splash"
           screenOptions={{
