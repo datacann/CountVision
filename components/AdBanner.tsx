@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import {
   BannerAd,
@@ -16,7 +16,10 @@ const ANDROID_BANNER_AD_UNIT_ID =
 
 export default function AdBanner() {
   const { isPremium, isPremiumReady } = usePremium();
-  if (!isPremiumReady || isPremium) return null;
+  // Reklam yüklenemezse (doluluk yok, ağ hatası vb.) boş şeridi gösterme.
+  // Ekran bir sonraki açılışında yeniden bağlandığında tekrar denenir.
+  const [failed, setFailed] = useState(false);
+  if (!isPremiumReady || isPremium || failed) return null;
 
   return (
     <View style={styles.container}>
@@ -31,6 +34,10 @@ export default function AdBanner() {
         size={BannerAdSize.BANNER}
         requestOptions={{
           requestNonPersonalizedAdsOnly: true,
+        }}
+        onAdFailedToLoad={(error) => {
+          if (__DEV__) console.warn("Banner reklam yüklenemedi", error);
+          setFailed(true);
         }}
       />
     </View>
